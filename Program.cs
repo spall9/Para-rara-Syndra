@@ -246,7 +246,6 @@ namespace ParaSyndra
 		{
 			if (sender.IsMe && args.Slot == SpellSlot.W)
 			{
-				Chat.Print("hello");
 				cannextw = false;
 				nextw = Game.Time * 1000;
 			}
