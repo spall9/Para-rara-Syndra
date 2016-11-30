@@ -42,21 +42,32 @@ namespace ParaSyndra
 			Config.AddSeparator();
 			Config.AddGroupLabel("AUTO Harras:");
 			Config.Add("qh", new CheckBox("Q"));
-			Config.Add("wh", new CheckBox("W", false));
-			Config.Add("qeh", new CheckBox("E STUN ONLY", false));
+			Config.Add("wh", new CheckBox("W"));
+			Config.Add("qeh", new CheckBox("E STUN"));
 			Config.Add("mm", new Slider("Minimum Mana Percent", 75));
+			Config.AddSeparator();
+			Config.AddGroupLabel("EXTRA Settings:");
+			Config.Add("qeor", new CheckBox("QE if out of range"));
 			Game.OnUpdate += Game_OnUpdate;
 			GameObject.OnCreate += GameObject_OnCreate;
 			GameObject.OnDelete += GameObject_OnDelete;
-			Obj_AI_Base.OnSpellCast += Obj_AI_Base_OnSpellCast;
+			Obj_AI_Base.OnProcessSpellCast += Obj_AI_Base_OnProcessSpellCast;
 		}
 		
 		static bool cannextw = true;
 		
-		static float nextw;
+		static float nextw, canw;
 
 		static void Game_OnUpdate(EventArgs args)
 		{
+			if (E.IsReady())
+			{
+				foreach(var enemy in EntityManager.Heroes.Enemies.OrderBy(x=>x.Distance(Player.Instance)).Where(x=>x.IsValidTarget(500) && (x.Distance(Player.Instance) < x.AttackRange+Player.Instance.BoundingRadius+x.BoundingRadius || (Player.Instance.Health/Player.Instance.MaxMana)*100 < 25)))
+				{
+					E.Cast(enemy);
+					break;
+				}
+			}
 			if (Orbwalker.ActiveModesFlags.HasFlag(Orbwalker.ActiveModes.Combo))
 			{
 				RLogic();
@@ -66,13 +77,13 @@ namespace ParaSyndra
 			}
 			else if ((Player.Instance.Mana / Player.Instance.MaxMana) * 100 > Config["mm"].Cast<Slider>().CurrentValue)
 			{
-				if (Config["qh"].Cast<CheckBox>().CurrentValue)
-				{
-					QLogic();
-				}
 				if (Config["qeh"].Cast<CheckBox>().CurrentValue)
 				{
 					ELogic();
+				}
+				if (Config["qh"].Cast<CheckBox>().CurrentValue)
+				{
+					QLogic();
 				}
 				if (Config["wh"].Cast<CheckBox>().CurrentValue)
 				{
@@ -127,7 +138,7 @@ namespace ParaSyndra
 					W.Cast(t);
 				}
 			}
-			else if (cannextw && W.IsReady())
+			else if (Game.Time * 1000 > canw + 150 && cannextw && W.IsReady())
 			{
 				Vector3 pos = Vector3.Zero;
 				foreach (var syndrasq in GrabableW.Where(x=>x.Value.Position.Distance(Player.Instance)<900))
@@ -185,24 +196,42 @@ namespace ParaSyndra
 		
 		static void ELogic()
 		{
-			if (E.IsReady() && Game.Time * 1000 > nextw + 500)
+			if (E.IsReady())
 			{
-				var target = TargetSelector.GetTarget(1100, DamageType.Magical);
-				if (target.IsValidTarget())
+				if (Game.Time * 1000 > nextw + 500)
 				{
-					foreach (var syndrasq in GrabableW.Where(x=>x.Value.Position.Distance(Player.Instance)<700 && x.Value.Position.Distance(Player.Instance) < target.Distance(Player.Instance) && x.Value.Position.Distance(target) < target.Distance(Player.Instance)))
+					var target = TargetSelector.GetTarget(1100, DamageType.Magical);
+					if (target.IsValidTarget())
 					{
-						Vector3 pos = syndrasq.Value.Position;
 						Vector3 cast = E.GetPrediction(target).CastPosition;
-						float dist = DistanceFromPointToLine(cast, Player.Instance.Position, pos);
-						if (dist < 35f + target.BoundingRadius)
+						foreach (var syndrasq in GrabableW.Where(x=>x.Value.Position.Distance(Player.Instance)<700 && x.Value.Position.Distance(Player.Instance) < target.Distance(Player.Instance) && x.Value.Position.Distance(target) < target.Distance(Player.Instance)))
 						{
+							Vector3 pos = syndrasq.Value.Position;
+							float dist = DistanceFromPointToLine(cast, Player.Instance.Position, pos);
+							if (dist < 35f + target.BoundingRadius)
+							{
+								Player.CastSpell(SpellSlot.E, cast);
+								return;
+							}
+						}
+						if (Config["qeor"].Cast<CheckBox>().CurrentValue && Q.IsReady() && !InRangeE())
+						{
+							Player.CastSpell(SpellSlot.Q, Player.Instance.Position + ((cast-Player.Instance.Position).Normalized()*500));
 							Player.CastSpell(SpellSlot.E, cast);
-							break;
+							canw = Game.Time * 1000;
 						}
 					}
 				}
 			}
+		}
+		
+		static bool InRangeE()
+		{
+			foreach (var enemy in EntityManager.Heroes.Enemies.Where(x=>x.IsValidTarget(700)))
+			{
+				return true;
+			}
+			return false;
 		}
 		
 		static void RLogic()
@@ -241,15 +270,13 @@ namespace ParaSyndra
 			}
 		}
 
-		static void Obj_AI_Base_OnSpellCast(Obj_AI_Base sender, GameObjectProcessSpellCastEventArgs args)
+		static void Obj_AI_Base_OnProcessSpellCast(Obj_AI_Base sender, GameObjectProcessSpellCastEventArgs args)
 		{
-			if (sender.IsMe && args.Slot == SpellSlot.W)
+			if (sender.IsMe && args.SData.Name == "SyndraE" && !Player.Instance.HasBuff("syndrawtooltip"))
 			{
-				cannextw = false;
-				nextw = Game.Time * 1000;
+				cannextw = true;
 			}
 		}
-		
 		static bool CanUlt(AIHeroClient unit)
 		{
 			float magicresist = (unit.SpellBlock - Player.Instance.FlatMagicPenetrationMod) * Player.Instance.PercentMagicPenetrationMod;
