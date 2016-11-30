@@ -49,7 +49,6 @@ namespace ParaSyndra
 			GameObject.OnCreate += GameObject_OnCreate;
 			GameObject.OnDelete += GameObject_OnDelete;
 			Obj_AI_Base.OnSpellCast += Obj_AI_Base_OnSpellCast;
-			;
 		}
 		
 		static bool cannextw = true;
